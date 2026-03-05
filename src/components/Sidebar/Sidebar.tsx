@@ -35,21 +35,16 @@ export default function Sidebar({
                 <div className="sidebar-header">
                     <div className="sidebar-logo">
                         <div className="logo-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                                <circle cx="12" cy="12" r="10" fill="url(#logoGrad)" />
-                                <text
-                                    x="12"
-                                    y="16"
-                                    textAnchor="middle"
+                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                                <circle cx="14" cy="14" r="13" fill="url(#sidebarLogoGrad)" />
+                                {/* AI Sparkle Icon */}
+                                <path
+                                    d="M14 5L14.9 10.2L19 8L16.5 12.1L22 13L16.5 13.9L19 18L14.9 15.8L14 21L13.1 15.8L9 18L11.5 13.9L6 13L11.5 12.1L9 8L13.1 10.2L14 5Z"
                                     fill="white"
-                                    fontSize="12"
-                                    fontWeight="700"
-                                    fontFamily="Inter, sans-serif"
-                                >
-                                    L
-                                </text>
+                                    fillOpacity="0.95"
+                                />
                                 <defs>
-                                    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <linearGradient id="sidebarLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                                         <stop offset="0%" stopColor="#6366F1" />
                                         <stop offset="100%" stopColor="#8B5CF6" />
                                     </linearGradient>
@@ -59,7 +54,7 @@ export default function Sidebar({
                         <span className="logo-text">Lucy</span>
                     </div>
                     <button className="sidebar-close-btn" onClick={onClose} aria-label="Cerrar menú">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <line x1="18" y1="6" x2="6" y2="18" />
                             <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
@@ -73,7 +68,7 @@ export default function Sidebar({
                         onClose();
                     }}
                 >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="12" y1="5" x2="12" y2="19" />
                         <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
