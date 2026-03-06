@@ -1,43 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServiceClient } from '@/lib/supabase-server';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-const SYSTEM_PROMPT = `Eres Lucy, la asistente virtual experta de IntegroSuite — una plataforma CRM todo-en-uno diseñada para empresas en Colombia y Latinoamérica, construida sobre GoHighLevel.
+// ─── Config Cache (60s TTL) ────────────────────────────────────────────────
+let configCache: Record<string, string> | null = null;
+let configCacheTime = 0;
+const CONFIG_CACHE_TTL = 60000; // 60 segundos
 
-## Tu personalidad
-- Eres amable, profesional y paciente
-- Hablas en español latinoamericano (Colombia), de manera cercana pero profesional
-- Usas "tú" (no "usted" ni "vos")
-- Eres concisa pero completa en tus respuestas
-- Cuando no sabes algo con certeza, lo dices honestamente
-- Puedes usar emojis ocasionalmente para ser más cercana, pero sin exagerar
+async function getConfig(): Promise<Record<string, string>> {
+    const now = Date.now();
+    if (configCache && (now - configCacheTime) < CONFIG_CACHE_TTL) {
+        return configCache;
+    }
+    try {
+        const supabase = createServiceClient();
+        const { data } = await supabase.from('bot_config').select('key, value');
+        configCache = Object.fromEntries(data?.map((r: { key: string; value: string }) => [r.key, r.value]) || []);
+        configCacheTime = now;
+        return configCache;
+    } catch (err) {
+        console.error('Error loading bot_config from Supabase:', err);
+        // Fallback defaults si Supabase no responde
+        return {
+            system_prompt: 'Eres Lucy, la asistente virtual experta de IntegroSuite.',
+            model: 'gpt-4o-mini',
+            temperature: '0.7',
+            max_tokens: '2048',
+            rate_limit_per_minute: '20',
+            max_messages_per_conversation: '50',
+        };
+    }
+}
 
-## Tu conocimiento
-- Eres experta en todas las funcionalidades de IntegroSuite/GoHighLevel
-- Conoces a profundidad: CRM, pipelines de ventas, automatizaciones, email marketing, SMS marketing, landing pages, formularios, calendarios, reputación online, reportes y analytics, integraciones, facturación, workflows, triggers, campañas, oportunidades, contactos, smart lists, social planner
-- Puedes explicar paso a paso cómo realizar cualquier tarea dentro de la plataforma
-- Conoces las mejores prácticas de uso del CRM para negocios en LATAM
-
-## Formato de respuestas
-- Usa Markdown para estructurar tus respuestas
-- Para tutoriales paso a paso, usa listas numeradas
-- Resalta términos importantes en **negrita**
-- Si mencionas una ruta de navegación dentro de la plataforma, usa el formato: **Configuración → Pipelines → Nuevo Pipeline**
-- Mantén las respuestas enfocadas y accionables
-- Si la pregunta es muy amplia, pide aclaración antes de responder
-
-## Límites
-- Solo respondes preguntas relacionadas con IntegroSuite y su ecosistema
-- Si te preguntan algo fuera de tu ámbito, responde amablemente que solo puedes ayudar con temas de IntegroSuite
-- No inventes funcionalidades que no existen en la plataforma
-- Si detectas que el usuario necesita soporte técnico avanzado, sugiérele contactar al equipo de soporte de IntegroSuite`;
-
-// In-memory rate limiting with automatic cleanup
+// ─── In-memory rate limiting ────────────────────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-const RATE_LIMIT = 20;
-const RATE_WINDOW_MS = 60000;
 
-// Bug #3 fix: Periodic cleanup to prevent memory leak
 const CLEANUP_INTERVAL_MS = 60000;
 let lastCleanup = Date.now();
 
@@ -46,35 +44,82 @@ function cleanupRateLimitMap() {
     if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
     lastCleanup = now;
     for (const [ip, entry] of rateLimitMap) {
-        if (now > entry.resetTime) {
-            rateLimitMap.delete(ip);
-        }
+        if (now > entry.resetTime) rateLimitMap.delete(ip);
     }
 }
 
-function checkRateLimit(ip: string): boolean {
+function checkRateLimit(ip: string, limitPerMin: number): boolean {
     cleanupRateLimitMap();
     const now = Date.now();
     const entry = rateLimitMap.get(ip);
 
     if (!entry || now > entry.resetTime) {
-        rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_WINDOW_MS });
+        rateLimitMap.set(ip, { count: 1, resetTime: now + 60000 });
         return true;
     }
-
-    if (entry.count >= RATE_LIMIT) {
-        return false;
-    }
-
+    if (entry.count >= limitPerMin) return false;
     entry.count++;
     return true;
 }
 
-// Bug #4 fix: Input validation constants
-const MAX_MESSAGES = 50;
+// ─── Input validation ────────────────────────────────────────────────────────
 const MAX_MESSAGE_LENGTH = 10000;
 const VALID_ROLES = new Set(['user', 'assistant']);
 
+// ─── Save conversation async (non-blocking) ──────────────────────────────────
+async function saveToSupabase(
+    sessionId: string,
+    userMessage: string,
+    assistantMessage: string,
+    ipAddress: string
+) {
+    try {
+        const supabase = createServiceClient();
+
+        // Upsert conversation
+        const { data: conv, error: convError } = await supabase
+            .from('conversations')
+            .insert({
+                session_id: sessionId,
+                title: userMessage.slice(0, 80),
+                ip_address: ipAddress,
+                message_count: 2,
+                updated_at: new Date().toISOString(),
+            })
+            .select('id')
+            .single();
+
+        if (convError || !conv) {
+            console.error('Error inserting conversation:', convError);
+            return;
+        }
+
+        // Insert user + assistant messages
+        await supabase.from('messages').insert([
+            { conversation_id: conv.id, role: 'user', content: userMessage },
+            { conversation_id: conv.id, role: 'assistant', content: assistantMessage },
+        ]);
+
+        // Log analytics event
+        await supabase.from('analytics_events').insert([
+            {
+                event_type: 'chat_started',
+                session_id: sessionId,
+                conversation_id: conv.id,
+            },
+            {
+                event_type: 'message_sent',
+                session_id: sessionId,
+                conversation_id: conv.id,
+                metadata: { message_length: userMessage.length },
+            },
+        ]);
+    } catch (err) {
+        console.error('Error saving to Supabase (non-blocking):', err);
+    }
+}
+
+// ─── POST Handler ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
     if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your-openai-api-key-here' || OPENAI_API_KEY === 'tu-api-key-aqui') {
         return NextResponse.json(
@@ -83,9 +128,17 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    // Bug #2 fix: Use x-real-ip (injected by Vercel, trustworthy) instead of x-forwarded-for (spoofable)
+    // Load config from Supabase (with cache)
+    const config = await getConfig();
+    const rateLimit = parseInt(config.rate_limit_per_minute || '20', 10);
+    const maxMessages = parseInt(config.max_messages_per_conversation || '50', 10);
+    const systemPrompt = config.system_prompt || 'Eres Lucy, asistente virtual de IntegroSuite.';
+    const model = config.model || 'gpt-4o-mini';
+    const temperature = parseFloat(config.temperature || '0.7');
+    const maxTokens = parseInt(config.max_tokens || '2048', 10);
+
     const ip = request.headers.get('x-real-ip') || 'unknown';
-    if (!checkRateLimit(ip)) {
+    if (!checkRateLimit(ip, rateLimit)) {
         return NextResponse.json(
             { error: 'Has enviado demasiados mensajes. Espera un minuto e intenta de nuevo.' },
             { status: 429 }
@@ -94,42 +147,27 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const { messages } = body;
+        const { messages, sessionId } = body;
 
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
-            return NextResponse.json(
-                { error: 'Mensajes no válidos' },
-                { status: 400 }
-            );
+            return NextResponse.json({ error: 'Mensajes no válidos' }, { status: 400 });
         }
 
-        // Bug #4 fix: Validate message count
-        if (messages.length > MAX_MESSAGES) {
-            return NextResponse.json(
-                { error: 'Demasiados mensajes en la conversación' },
-                { status: 400 }
-            );
+        if (messages.length > maxMessages) {
+            return NextResponse.json({ error: 'Demasiados mensajes en la conversación' }, { status: 400 });
         }
 
-        // Bug #4 fix: Validate each message content and role
         for (const m of messages) {
             if (typeof m.content !== 'string' || m.content.length > MAX_MESSAGE_LENGTH) {
-                return NextResponse.json(
-                    { error: 'Contenido de mensaje inválido o demasiado largo' },
-                    { status: 400 }
-                );
+                return NextResponse.json({ error: 'Contenido de mensaje inválido o demasiado largo' }, { status: 400 });
             }
             if (!VALID_ROLES.has(m.role)) {
-                return NextResponse.json(
-                    { error: 'Rol de mensaje no válido' },
-                    { status: 400 }
-                );
+                return NextResponse.json({ error: 'Rol de mensaje no válido' }, { status: 400 });
             }
         }
 
-        // Prepend system prompt
         const apiMessages = [
-            { role: 'system' as const, content: SYSTEM_PROMPT },
+            { role: 'system' as const, content: systemPrompt },
             ...messages.map((m: { role: string; content: string }) => ({
                 role: m.role as 'user' | 'assistant',
                 content: m.content,
@@ -143,41 +181,62 @@ export async function POST(request: NextRequest) {
                 Authorization: `Bearer ${OPENAI_API_KEY}`,
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model,
                 messages: apiMessages,
                 stream: true,
-                temperature: 0.7,
-                max_tokens: 2048,
+                temperature,
+                max_tokens: maxTokens,
             }),
         });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             console.error('OpenAI API error:', errorData);
+            // Log analytics error event
+            const supabase = createServiceClient();
+            await supabase.from('analytics_events').insert({
+                event_type: 'error',
+                session_id: sessionId || 'unknown',
+                metadata: { status: response.status },
+            });
             return NextResponse.json(
-                { error: errorData?.error?.message || 'Error al comunicarse con la IA' },
+                { error: (errorData as { error?: { message?: string } })?.error?.message || 'Error al comunicarse con la IA' },
                 { status: response.status }
             );
         }
 
-        // Proxy the stream
+        // Collect full assistant response to save to Supabase async
+        let assistantContent = '';
+        const lastUserMessage = [...messages].reverse().find((m: { role: string }) => m.role === 'user')?.content || '';
+
         const stream = new ReadableStream({
             async start(controller) {
                 const reader = response.body?.getReader();
-                if (!reader) {
-                    controller.close();
-                    return;
-                }
+                if (!reader) { controller.close(); return; }
 
-                // Bug #7 fix: Removed duplicate [DONE] — OpenAI already sends it in the stream
+                const decoder = new TextDecoder();
                 try {
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) {
                             controller.close();
+                            // Save to Supabase asynchronously after stream is done
+                            if (sessionId && lastUserMessage && assistantContent) {
+                                saveToSupabase(sessionId, lastUserMessage, assistantContent, ip);
+                            }
                             break;
                         }
                         controller.enqueue(value);
+                        // Parse streaming chunks to accumulate assistant content
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n').filter(l => l.startsWith('data: ') && l !== 'data: [DONE]');
+                        for (const line of lines) {
+                            try {
+                                const json = JSON.parse(line.slice(6));
+                                const delta = json?.choices?.[0]?.delta?.content;
+                                if (delta) assistantContent += delta;
+                            } catch { /* ignore parse errors */ }
+                        }
                     }
                 } catch (error) {
                     console.error('Stream error:', error);
@@ -195,9 +254,6 @@ export async function POST(request: NextRequest) {
         });
     } catch (error) {
         console.error('Chat API error:', error);
-        return NextResponse.json(
-            { error: 'Error interno del servidor' },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
     }
 }
