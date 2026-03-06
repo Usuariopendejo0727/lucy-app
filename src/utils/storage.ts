@@ -29,28 +29,6 @@ export function saveConversations(conversations: Conversation[]): void {
     }
 }
 
-export function saveConversation(conversation: Conversation): void {
-    if (typeof window === 'undefined') return;
-    try {
-        const conversations = getConversations();
-        const existingIndex = conversations.findIndex((c) => c.id === conversation.id);
-
-        if (existingIndex >= 0) {
-            conversations[existingIndex] = conversation;
-        } else {
-            conversations.unshift(conversation);
-        }
-
-        // Prune oldest if exceeding max
-        while (conversations.length > MAX_CONVERSATIONS) {
-            conversations.pop();
-        }
-
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-    } catch (e) {
-        console.error('Error saving conversation:', e);
-    }
-}
 
 export function deleteConversation(id: string): void {
     if (typeof window === 'undefined') return;

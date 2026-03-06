@@ -30,6 +30,7 @@ export default function AdminOverviewPage() {
             .then((data) => {
                 if (!data.error) setAnalytics(data);
             })
+            .catch((err) => console.error('Error cargando analytics:', err))
             .finally(() => setLoading(false));
     }, []);
 
@@ -54,6 +55,7 @@ export default function AdminOverviewPage() {
                         fetch('/api/admin/analytics')
                             .then((r) => r.json())
                             .then((data) => { if (!data.error) setAnalytics(data); })
+                            .catch((err) => console.error('Error cargando analytics:', err))
                             .finally(() => setLoading(false));
                     }}
                     title="Actualizar datos"

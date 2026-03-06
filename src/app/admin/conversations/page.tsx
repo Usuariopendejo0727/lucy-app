@@ -14,17 +14,22 @@ export default function AdminConversationsPage() {
 
     const loadConversations = useCallback(async (p: number, q: string) => {
         setLoading(true);
-        const params = new URLSearchParams({ page: p.toString(), limit: '20' });
-        if (q) params.set('search', q);
-        const res = await fetch(`/api/admin/conversations?${params}`);
-        const data = await res.json();
-        if (!data.error) {
-            setConversations(data.conversations);
-            setTotal(data.total);
-            setPage(data.page);
-            setPages(data.pages);
+        try {
+            const params = new URLSearchParams({ page: p.toString(), limit: '20' });
+            if (q) params.set('search', q);
+            const res = await fetch(`/api/admin/conversations?${params}`);
+            const data = await res.json();
+            if (!data.error) {
+                setConversations(data.conversations);
+                setTotal(data.total);
+                setPage(data.page);
+                setPages(data.pages);
+            }
+        } catch (err) {
+            console.error('Error cargando conversaciones:', err);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }, []);
 
     useEffect(() => {

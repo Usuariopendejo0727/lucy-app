@@ -54,6 +54,7 @@ export function useChat(options: UseChatOptions) {
                             role: m.role,
                             content: m.content,
                         })),
+                        sessionId: conversationId,
                     }),
                 });
 

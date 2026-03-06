@@ -10,6 +10,8 @@ export default function AdminLoginPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [lockedUntil, setLockedUntil] = useState(0);
     const router = useRouter();
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -17,11 +19,26 @@ export default function AdminLoginPage() {
         setLoading(true);
         setError('');
 
+        // BUG-14 fix: Lockout check
+        if (Date.now() < lockedUntil) {
+            const secsLeft = Math.ceil((lockedUntil - Date.now()) / 1000);
+            setError(`Demasiados intentos. Espera ${secsLeft} segundos.`);
+            setLoading(false);
+            return;
+        }
+
         const supabase = createClient();
         const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
         if (authError) {
-            setError('Email o contraseña incorrectos. Verifica tus credenciales.');
+            const newAttempts = failedAttempts + 1;
+            setFailedAttempts(newAttempts);
+            if (newAttempts >= 5) {
+                setLockedUntil(Date.now() + 30000);
+                setError('Demasiados intentos fallidos. Espera 30 segundos.');
+            } else {
+                setError(`Email o contraseña incorrectos. (${newAttempts}/5 intentos)`);
+            }
             setLoading(false);
             return;
         }
@@ -78,7 +95,7 @@ export default function AdminLoginPage() {
 
                     {error && <div className="admin-error">{error}</div>}
 
-                    <button type="submit" className="admin-btn-primary full" disabled={loading}>
+                    <button type="submit" className="admin-btn-primary full" disabled={loading || Date.now() < lockedUntil}>
                         {loading ? 'Iniciando sesión…' : 'Iniciar sesión'}
                     </button>
                 </form>

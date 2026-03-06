@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     const { data: daily } = await supabase
         .from('daily_metrics')
         .select('*')
+        .order('date', { ascending: false })
         .limit(30);
 
     // Frequent questions (top 20)
