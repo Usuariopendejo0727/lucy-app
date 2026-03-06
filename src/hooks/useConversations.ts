@@ -6,7 +6,6 @@ import { Conversation, Message } from '@/types';
 import {
     getConversations,
     saveConversations,
-    deleteConversation as deleteFromStorage,
 } from '@/utils/storage';
 
 // Bug #6 fix: Debounce timer for localStorage writes
@@ -118,8 +117,17 @@ export function useConversations() {
 
     const deleteConversation = useCallback(
         (id: string) => {
-            deleteFromStorage(id);
-            setConversations((prev) => prev.filter((c) => c.id !== id));
+            // Cancel any pending debounced write (BUG-07 fix)
+            if (saveTimerRef.current) {
+                clearTimeout(saveTimerRef.current);
+                saveTimerRef.current = null;
+            }
+            // Update state and write immediately to localStorage
+            setConversations((prev) => {
+                const updated = prev.filter((c) => c.id !== id);
+                saveConversations(updated);
+                return updated;
+            });
             if (activeConversationId === id) {
                 setActiveConversationId(null);
             }

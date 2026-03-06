@@ -42,19 +42,21 @@ function StatCard({
 }
 
 export default function StatsCards({ summary }: StatsCardsProps) {
+    const responseRate = summary.total_messages > 0
+        ? ((summary.assistant_messages / summary.total_messages) * 100).toFixed(1) + '%'
+        : 'N/A';
+
     return (
         <div className="stats-grid">
             <StatCard
                 title="Conversaciones totales"
                 value={summary.total_conversations}
                 icon="💬"
-                change={summary.conversations_today > 0 ? 12 : 0}
             />
             <StatCard
                 title="Mensajes hoy"
                 value={summary.messages_today}
                 icon="📨"
-                change={summary.messages_today > 0 ? 5 : 0}
             />
             <StatCard
                 title="Usuarios únicos"
@@ -63,9 +65,8 @@ export default function StatsCards({ summary }: StatsCardsProps) {
             />
             <StatCard
                 title="Tasa de respuesta"
-                value="99.8%"
+                value={responseRate}
                 icon="✅"
-                changeLabel="Excelente"
             />
         </div>
     );

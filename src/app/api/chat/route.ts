@@ -33,32 +33,19 @@ async function getConfig(): Promise<Record<string, string>> {
     }
 }
 
-// ─── In-memory rate limiting ────────────────────────────────────────────────
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-
-const CLEANUP_INTERVAL_MS = 60000;
-let lastCleanup = Date.now();
-
-function cleanupRateLimitMap() {
-    const now = Date.now();
-    if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
-    lastCleanup = now;
-    for (const [ip, entry] of rateLimitMap) {
-        if (now > entry.resetTime) rateLimitMap.delete(ip);
-    }
-}
-
-function checkRateLimit(ip: string, limitPerMin: number): boolean {
-    cleanupRateLimitMap();
-    const now = Date.now();
-    const entry = rateLimitMap.get(ip);
-
-    if (!entry || now > entry.resetTime) {
-        rateLimitMap.set(ip, { count: 1, resetTime: now + 60000 });
-        return true;
-    }
-    if (entry.count >= limitPerMin) return false;
-    entry.count++;
+// ─── Rate limiting via Supabase (shared across serverless instances) ────────
+// Requires table: rate_limit_events (ip_address TEXT, created_at TIMESTAMPTZ DEFAULT now())
+// The CRON_SECRET env var should be configured in the Vercel dashboard.
+async function checkRateLimit(ip: string, limitPerMin: number): Promise<boolean> {
+    const supabase = createServiceClient();
+    const windowStart = new Date(Date.now() - 60000).toISOString();
+    const { count } = await supabase
+        .from('rate_limit_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('ip_address', ip)
+        .gte('created_at', windowStart);
+    if ((count ?? 0) >= limitPerMin) return false;
+    await supabase.from('rate_limit_events').insert({ ip_address: ip });
     return true;
 }
 
@@ -76,22 +63,32 @@ async function saveToSupabase(
     try {
         const supabase = createServiceClient();
 
-        // Upsert conversation
+        // Upsert conversation (BUG-02 fix: use upsert instead of insert)
         const { data: conv, error: convError } = await supabase
             .from('conversations')
-            .insert({
-                session_id: sessionId,
-                title: userMessage.slice(0, 80),
-                ip_address: ipAddress,
-                message_count: 2,
-                updated_at: new Date().toISOString(),
-            })
-            .select('id')
+            .upsert(
+                {
+                    session_id: sessionId,
+                    title: userMessage.slice(0, 80),
+                    ip_address: ipAddress,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'session_id', ignoreDuplicates: false }
+            )
+            .select('id, message_count')
             .single();
 
         if (convError || !conv) {
-            console.error('Error inserting conversation:', convError);
+            console.error('Error upserting conversation:', convError);
             return;
+        }
+
+        // Increment message_count dynamically (BUG-02/06 fix)
+        if (conv) {
+            await supabase
+                .from('conversations')
+                .update({ message_count: (conv.message_count ?? 0) + 2 })
+                .eq('id', conv.id);
         }
 
         // Insert user + assistant messages
@@ -137,8 +134,13 @@ export async function POST(request: NextRequest) {
     const temperature = parseFloat(config.temperature || '0.7');
     const maxTokens = parseInt(config.max_tokens || '2048', 10);
 
-    const ip = request.headers.get('x-real-ip') || 'unknown';
-    if (!checkRateLimit(ip, rateLimit)) {
+    // BUG-04 fix: Prioritize Vercel-verified headers over spoofable ones
+    const ip =
+        request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-real-ip') ||
+        'unknown';
+    if (!(await checkRateLimit(ip, rateLimit))) {
         return NextResponse.json(
             { error: 'Has enviado demasiados mensajes. Espera un minuto e intenta de nuevo.' },
             { status: 429 }
@@ -189,20 +191,26 @@ export async function POST(request: NextRequest) {
             }),
         });
 
+        // BUG-13 fix: Don't expose OpenAI internal errors to client
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            console.error('OpenAI API error:', errorData);
-            // Log analytics error event
+            console.error('OpenAI API error:', response.status, errorData);
+
             const supabase = createServiceClient();
             await supabase.from('analytics_events').insert({
                 event_type: 'error',
                 session_id: sessionId || 'unknown',
                 metadata: { status: response.status },
             });
-            return NextResponse.json(
-                { error: (errorData as { error?: { message?: string } })?.error?.message || 'Error al comunicarse con la IA' },
-                { status: response.status }
-            );
+
+            const userFacingMsg =
+                response.status === 429
+                    ? 'El servicio está temporalmente saturado. Intenta en un momento.'
+                    : response.status === 401
+                        ? 'Error de configuración del servicio. Contacta al administrador.'
+                        : 'Error al comunicarse con la IA. Por favor intenta de nuevo.';
+
+            return NextResponse.json({ error: userFacingMsg }, { status: response.status });
         }
 
         // Collect full assistant response to save to Supabase async

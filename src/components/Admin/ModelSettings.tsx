@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BotConfig } from '@/types';
 
 const MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
@@ -19,6 +19,20 @@ export default function ModelSettings({ config, onSave, saving }: ModelSettingsP
     const [welcomeSubtitle, setWelcomeSubtitle] = useState(config.welcome_subtitle || '');
     const [rateLimit, setRateLimit] = useState(parseInt(config.rate_limit_per_minute || '20', 10));
     const [maxMsgs, setMaxMsgs] = useState(parseInt(config.max_messages_per_conversation || '50', 10));
+
+    // BUG-18 fix: Dynamic max tokens per model
+    const MODEL_MAX_TOKENS: Record<string, number> = {
+        'gpt-4o': 16384,
+        'gpt-4o-mini': 16384,
+        'gpt-4-turbo': 4096,
+        'gpt-3.5-turbo': 4096,
+    };
+    const currentMaxTokens = MODEL_MAX_TOKENS[model] ?? 4096;
+
+    useEffect(() => {
+        const limit = MODEL_MAX_TOKENS[model] ?? 4096;
+        if (maxTokens > limit) setMaxTokens(limit);
+    }, [model]);
 
     const handleSaveModel = () => {
         onSave({ model, temperature: temperature.toString(), max_tokens: maxTokens.toString() });
@@ -85,12 +99,12 @@ export default function ModelSettings({ config, onSave, saving }: ModelSettingsP
                             className="admin-input"
                             value={maxTokens}
                             min={256}
-                            max={4096}
+                            max={currentMaxTokens}
                             onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
                         />
                         <button
                             className="admin-number-btn"
-                            onClick={() => setMaxTokens((v) => Math.min(4096, v + 128))}
+                            onClick={() => setMaxTokens((v) => Math.min(currentMaxTokens, v + 128))}
                         >+</button>
                     </div>
                 </div>
