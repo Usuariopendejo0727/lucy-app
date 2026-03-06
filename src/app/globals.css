@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap');
 @import "tailwindcss";
 
 /* ============================
@@ -73,7 +74,7 @@
   --duration-slow: 350ms;
 
   /* ── Font ── */
-  --font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-family: 'Onest', var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
   /* ── Typography Scale ── */
   --text-xs: 0.75rem;
@@ -83,6 +84,17 @@
   --text-xl: 1.5rem;
   --text-2xl: 2rem;
 }
+
+/* ── Typography Classes (Onest) ── */
+.onest-100 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 100; font-style: normal; }
+.onest-200 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 200; font-style: normal; }
+.onest-300 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 300; font-style: normal; }
+.onest-400 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 400; font-style: normal; }
+.onest-500 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 500; font-style: normal; }
+.onest-600 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 600; font-style: normal; }
+.onest-700 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 700; font-style: normal; }
+.onest-800 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 800; font-style: normal; }
+.onest-900 { font-family: "Onest", sans-serif; font-optical-sizing: auto; font-weight: 900; font-style: normal; }
 
 /* ============================
    BASE RESET
