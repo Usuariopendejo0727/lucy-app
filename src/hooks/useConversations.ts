@@ -19,6 +19,7 @@ export function useConversations() {
 
     // Load conversations from localStorage on mount
     useEffect(() => {
+        // eslint-disable-next-line 
         setConversations(getConversations());
     }, []);
 
