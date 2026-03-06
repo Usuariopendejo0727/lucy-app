@@ -28,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className={`${onest.variable}`}>
+      <body className={`${onest.variable} ${onest.className}`}>
         {children}
       </body>
     </html>

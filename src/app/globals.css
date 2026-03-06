@@ -162,7 +162,7 @@
 html,
 body {
   height: 100%;
-  font-family: var(--font-family);
+  font-family: var(--font-onest), 'Onest', system-ui, -apple-system, sans-serif !important;
   color: var(--text-primary);
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
